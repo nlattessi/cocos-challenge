@@ -1,0 +1,76 @@
+{
+	"info": {
+		"_postman_id": "07e7604d-600b-4371-a3f3-3d49b154716c",
+		"name": "Cocos",
+		"schema": "https://schema.getpostman.com/json/collection/v2.0.0/collection.json",
+		"_exporter_id": "30097799"
+	},
+	"item": [
+		{
+			"name": "All instruments",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "{{baseURL}}/instruments"
+			},
+			"response": []
+		},
+		{
+			"name": "Search Instruments with query",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseURL}}/instruments?query=pat",
+					"host": [
+						"{{baseURL}}"
+					],
+					"path": [
+						"instruments"
+					],
+					"query": [
+						{
+							"key": "query",
+							"value": "pat"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Get Account Portfolio",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": "{{baseURL}}/accounts/10001/portfolio"
+			},
+			"response": []
+		},
+		{
+			"name": "Create cash-in order",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"accountNumber\": \"10001\",\n    \"type\": \"MARKET\",\n    \"side\": \"CASH_IN\",\n    \"size\": 12345\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": "localhost:3000/orders"
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseURL",
+			"value": "",
+			"type": "default"
+		}
+	]
+}
