@@ -6,7 +6,7 @@ import { Marketdata } from 'src/marketdata/marketdata.entity';
 import { ORDERED_MARKETDATA_QUERY } from 'src/marketdata/marketdata.service';
 import { User } from 'src/users/user.entity';
 import { UsersService } from 'src/users/users.service';
-import { Repository } from 'typeorm';
+import { DeepPartial, Repository } from 'typeorm';
 import { CreateOrderRequestDto } from './dto/create-order.dto';
 import { Order } from './order.entity';
 import { OrderSide, OrderStatus, OrderType } from './orders.enums';
@@ -65,61 +65,55 @@ export class OrdersService {
         return parseInt(result.ars);
     }
 
-    public createOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
-        const { type, side } = createOrder;
+    public async createOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
+        const { type, side, accountNumber } = createOrder;
+
+        const user = await this.usersService.findOneByAccountNumber(accountNumber);
 
         if (type === OrderType.Market) {
             switch (side) {
                 case OrderSide.CashIn:
-                    return this.createCashInOrder(createOrder);
+                    return this.createCashInOrder(user, createOrder);
                 case OrderSide.CashOut:
-                    return this.createCashOutOrder(createOrder);
+                    return this.createCashOutOrder(user, createOrder);
                 case OrderSide.Buy:
-                    return this.createMarketBuyOrder(createOrder);
+                    return this.createMarketBuyOrder(user, createOrder);
                 case OrderSide.Sell:
-                    return this.createMarketSellOrder(createOrder);
+                    return this.createMarketSellOrder(user, createOrder);
             }
         }
 
         if (type === OrderType.Limit) {
             switch (side) {
                 case OrderSide.Buy:
-                    return this.createLimitBuyOrder(createOrder);
+                    return this.createLimitBuyOrder(user, createOrder);
                 case OrderSide.Sell:
-                    return this.createLimitSellOrder(createOrder);
+                    return this.createLimitSellOrder(user, createOrder);
             }
         }
 
         throw new BadRequestException('invalid request params');
     }
 
-    private async createCashInOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
-        const user = await this.usersService.findOneByAccountNumber(createOrder.accountNumber)
+    private async createCashInOrder(user: User, createOrder: CreateOrderRequestDto): Promise<Order> {
         const instrument = await this.instrumentsService.findArsInstrument();
 
-        const datetime = new Date(Date.now());
-        datetime.setMilliseconds(0);
-
-        const order = this.ordersRepository.create({
+        return this.saveNewOrder({
             ...createOrder,
             price: 1.00,
             status: OrderStatus.Filled,
             user,
             instrument,
-            datetime,
-        })
-
-        return this.ordersRepository.save(order)
+        });
     }
 
-    private async createCashOutOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
+    private async createCashOutOrder(user: User, createOrder: CreateOrderRequestDto): Promise<Order> {
         const { size: neededArsToTransfer } = createOrder;
 
         if (!neededArsToTransfer) {
             throw new BadRequestException('size is required');
         }
 
-        const user = await this.usersService.findOneByAccountNumber(createOrder.accountNumber)
         const instrument = await this.instrumentsService.findArsInstrument();
         const ownedArs = await this.getTotalCashInArsFromOrdersByUserId(user)
 
@@ -127,22 +121,16 @@ export class OrdersService {
             ? OrderStatus.Filled
             : OrderStatus.Rejected;
 
-        const datetime = new Date(Date.now());
-        datetime.setMilliseconds(0);
-
-        const order = this.ordersRepository.create({
+        return this.saveNewOrder({
             ...createOrder,
             price: 1.00,
             status: status,
             user,
             instrument,
-            datetime,
-        })
-
-        return this.ordersRepository.save(order)
+        });
     }
 
-    private async createMarketBuyOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
+    private async createMarketBuyOrder(user: User, createOrder: CreateOrderRequestDto): Promise<Order> {
         const { size, ars, ticker } = createOrder;
 
         if (!size && !ars) {
@@ -154,8 +142,6 @@ export class OrdersService {
         if (!ticker) {
             throw new BadRequestException('ticker is required');
         }
-
-        const user = await this.usersService.findOneByAccountNumber(createOrder.accountNumber);
 
         const instrument = await this.instrumentsService.findOneWithLatestMarketdataByTicker(ticker);
         const lastClosePrice = instrument.marketdata.at(0)?.close;
@@ -183,22 +169,16 @@ export class OrdersService {
             ? OrderStatus.Filled
             : OrderStatus.Rejected;
 
-        const datetime = new Date(Date.now());
-        datetime.setMilliseconds(0);
-
-        const order = this.ordersRepository.create({
+        return this.saveNewOrder({
             ...createOrder,
             price: lastClosePrice,
             status,
             user,
             instrument,
-            datetime,
         });
-
-        return this.ordersRepository.save(order);
     }
 
-    private async createMarketSellOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
+    private async createMarketSellOrder(user: User, createOrder: CreateOrderRequestDto): Promise<Order> {
         const { size, ars, ticker } = createOrder;
 
         if (!size && !ars) {
@@ -210,8 +190,6 @@ export class OrdersService {
         if (!ticker) {
             throw new BadRequestException('ticker is required');
         }
-
-        const user = await this.usersService.findOneByAccountNumber(createOrder.accountNumber);
 
         const instrument = await this.instrumentsService.findOneWithLatestMarketdataByTicker(ticker);
         const lastClosePrice = instrument.marketdata.at(0)?.close;
@@ -237,23 +215,17 @@ export class OrdersService {
             ? OrderStatus.Filled
             : OrderStatus.Rejected;
 
-        const datetime = new Date(Date.now());
-        datetime.setMilliseconds(0);
-
-        const order = this.ordersRepository.create({
+        return this.saveNewOrder({
             ...createOrder,
             price: lastClosePrice,
             size: sellSize,
             status,
             user,
             instrument,
-            datetime,
         });
-
-        return this.ordersRepository.save(order);
     }
 
-    private async createLimitBuyOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
+    private async createLimitBuyOrder(user: User, createOrder: CreateOrderRequestDto): Promise<Order> {
         const { size, ars, ticker, price: buyPrice } = createOrder;
 
         if (!buyPrice) {
@@ -269,9 +241,7 @@ export class OrdersService {
             throw new BadRequestException('ticker is required');
         }
 
-        const user = await this.usersService.findOneByAccountNumber(createOrder.accountNumber);
         const instrument = await this.instrumentsService.findOneWithLatestMarketdataByTicker(ticker);
-
         const ownedArs = await this.getTotalCashInArsFromOrdersByUserId(user);
 
         let neededArs = 0
@@ -292,22 +262,16 @@ export class OrdersService {
             ? OrderStatus.New
             : OrderStatus.Rejected;
 
-        const datetime = new Date(Date.now());
-        datetime.setMilliseconds(0);
-
-        const order = this.ordersRepository.create({
+        return this.saveNewOrder({
             ...createOrder,
             price: buyPrice,
             status,
             user,
             instrument,
-            datetime,
         });
-
-        return this.ordersRepository.save(order);
     }
 
-    private async createLimitSellOrder(createOrder: CreateOrderRequestDto): Promise<Order> {
+    private async createLimitSellOrder(user: User, createOrder: CreateOrderRequestDto): Promise<Order> {
         const { size, ars, ticker, price: sellPrice } = createOrder;
 
         if (!sellPrice) {
@@ -323,9 +287,7 @@ export class OrdersService {
             throw new BadRequestException('ticker is required');
         }
 
-        const user = await this.usersService.findOneByAccountNumber(createOrder.accountNumber);
         const instrument = await this.instrumentsService.findOneWithLatestMarketdataByTicker(ticker);
-
         const ownedSize = await this.getTotalSizeByUserAndInstrument(user.id, instrument.id);
 
         let sellSize = 0;
@@ -344,20 +306,23 @@ export class OrdersService {
             ? OrderStatus.New
             : OrderStatus.Rejected;
 
-        const datetime = new Date(Date.now());
-        datetime.setMilliseconds(0);
-
-        const order = this.ordersRepository.create({
+        return this.saveNewOrder({
             ...createOrder,
             price: sellPrice,
             size: sellSize,
             status,
             user,
             instrument,
-            datetime,
         });
+    }
 
-        return this.ordersRepository.save(order);
+    private async saveNewOrder(newOrder: DeepPartial<Order>): Promise<Order> {
+        const createdOrder = this.ordersRepository.create({
+            ...newOrder,
+            datetime: new Date(Date.now()),
+        })
+
+        return this.ordersRepository.save(createdOrder);
     }
 
     private async getTotalSizeByUserAndInstrument(userId: number, instrumentId: number): Promise<number> {
@@ -377,5 +342,4 @@ export class OrdersService {
 
         return parseInt(result.totalsize);
     }
-
 }
